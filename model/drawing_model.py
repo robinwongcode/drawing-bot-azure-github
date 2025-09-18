@@ -2,37 +2,46 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from PIL import Image, ImageDraw
-import requests
-import io
-import json
 import random
+import os
 from pathlib import Path
 
 
 class DrawingModel:
-    def __init__(self):
+    def __init__(self, model_path='model/trained_models/best_model.h5'):
         self.model = None
         self.model_loaded = False
-        self.categories = [
-            'apple', 'banana', 'book', 'car', 'cat', 'dog', 'house',
-            'tree', 'sun', 'moon', 'star', 'cloud', 'flower', 'heart'
-        ]
+        self.model_path = model_path
+
+        # Load categories
+        try:
+            with open('data/categories.txt', 'r') as f:
+                self.categories = [line.strip() for line in f.readlines()]
+        except FileNotFoundError:
+            # Fallback categories
+            self.categories = [
+                'apple', 'banana', 'book', 'car', 'cat', 'dog', 'house',
+                'tree', 'sun', 'moon', 'star', 'cloud', 'flower', 'heart'
+            ]
+
         self.load_model()
 
     def load_model(self):
-        """Load or create a simple CNN model for drawing recognition"""
+        """Load the trained model"""
         try:
-            # Try to load pre-trained model if available
-            self.model = keras.models.load_model('model/drawing_model.h5')
-            self.model_loaded = True
-            print("Model loaded successfully")
-        except:
-            # Create a simple model for demonstration
+            if os.path.exists(self.model_path):
+                self.model = keras.models.load_model(self.model_path)
+                self.model_loaded = True
+                print(f"Model loaded successfully from {self.model_path}")
+            else:
+                print("Trained model not found. Using fallback simple model.")
+                self.create_simple_model()
+        except Exception as e:
+            print(f"Error loading model: {e}")
             self.create_simple_model()
-            print("Created new model")
 
     def create_simple_model(self):
-        """Create a simple CNN model"""
+        """Fallback simple model"""
         self.model = keras.Sequential([
             keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(28, 28, 1)),
             keras.layers.MaxPooling2D((2, 2)),
@@ -59,10 +68,10 @@ class DrawingModel:
 
         # Draw the strokes
         for stroke in drawing_data:
-            if len(stroke) >= 2:
-                for i in range(len(stroke[0]) - 1):
-                    x1, y1 = stroke[0][i], stroke[1][i]
-                    x2, y2 = stroke[0][i + 1], stroke[1][i + 1]
+            if len(stroke['x']) >= 2:
+                for i in range(len(stroke['x']) - 1):
+                    x1, y1 = stroke['x'][i], stroke['y'][i]
+                    x2, y2 = stroke['x'][i + 1], stroke['y'][i + 1]
                     draw.line([x1, y1, x2, y2], fill=0, width=5)
 
         # Resize and normalize
@@ -80,30 +89,34 @@ class DrawingModel:
         if not self.model_loaded:
             return {'class_name': 'Model not loaded', 'confidence': 0.0}
 
-        # Preprocess the drawing
-        processed_image = self.preprocess_drawing(drawing_data)
+        try:
+            # Preprocess the drawing
+            processed_image = self.preprocess_drawing(drawing_data)
 
-        # Make prediction
-        predictions = self.model.predict(processed_image)
-        predicted_class = np.argmax(predictions[0])
-        confidence = predictions[0][predicted_class]
+            # Make prediction
+            predictions = self.model.predict(processed_image, verbose=0)
+            predicted_class = np.argmax(predictions[0])
+            confidence = predictions[0][predicted_class]
 
-        # Get all predictions with confidence scores
-        all_predictions = []
-        for i, conf in enumerate(predictions[0]):
-            all_predictions.append({
-                'class': self.categories[i],
-                'confidence': float(conf)
-            })
+            # Get all predictions with confidence scores
+            all_predictions = []
+            for i, conf in enumerate(predictions[0]):
+                all_predictions.append({
+                    'class': self.categories[i],
+                    'confidence': float(conf)
+                })
 
-        # Sort predictions by confidence
-        all_predictions.sort(key=lambda x: x['confidence'], reverse=True)
+            # Sort predictions by confidence
+            all_predictions.sort(key=lambda x: x['confidence'], reverse=True)
 
-        return {
-            'class_name': self.categories[predicted_class],
-            'confidence': float(confidence),
-            'all_predictions': all_predictions[:5]  # Top 5 predictions
-        }
+            return {
+                'class_name': self.categories[predicted_class],
+                'confidence': float(confidence),
+                'all_predictions': all_predictions[:5]  # Top 5 predictions
+            }
+
+        except Exception as e:
+            return {'class_name': f'Error: {str(e)}', 'confidence': 0.0}
 
     def get_random_category(self):
         """Get a random category from available classes"""
